@@ -37,7 +37,7 @@ lint:
 	scripts/verify-govet.sh
 
 .PHONY: build
-build: lint
+build: # lint
 	mkdir -p bin/
 	go build -v -o bin/diff -ldflags="$(LDFLAGS)"
 

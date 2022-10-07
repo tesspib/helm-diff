@@ -23,6 +23,7 @@ type Options struct {
 	OutputFormat    string
 	OutputContext   int
 	StripTrailingCR bool
+	ShowHelmLabels  bool
 	ShowSecrets     bool
 	SuppressedKinds []string
 	FindRenames     float32
@@ -64,6 +65,14 @@ func Manifests(oldIndex, newIndex map[string]*manifest.MappingResult, options *O
 		doDiff(&report, key, nil, newContent, options)
 	}
 
+	//for _, entry := range report.entries {
+	//	for _, diff := range entry.diffs {
+	//		fmt.Println(diff)
+	//	}
+	//}
+	if !options.ShowHelmLabels {
+		filterOutHelmLabelDiffs(&report)
+	}
 	seenAnyChanges := len(report.entries) > 0
 	report.print(to)
 	report.clean()
@@ -346,6 +355,35 @@ func calculateDistances(diffs []difflib.DiffRecord) map[int]int {
 	}
 
 	return distances
+}
+
+// Filter out diff records that contain Helm label changes only
+func filterOutHelmLabelDiffs(report *Report) {
+	// TODO: filter out diffs containing Helm label changes only
+	var filteredEntries []ReportEntry
+	for _, entry := range report.entries {
+		var changes []difflib.DiffRecord
+		for _, diff := range entry.diffs {
+			if diff.Delta == difflib.Common {
+				continue
+			}
+
+			trimmedPayload := strings.TrimSpace(diff.Payload)
+			if strings.HasPrefix(trimmedPayload, "helm.sh/chart:") {
+				continue
+			}
+
+			changes = append(changes, diff)
+		}
+
+		if len(changes) > 0 {
+			entry.diffs = changes
+			filteredEntries = append(filteredEntries, entry)
+		}
+	}
+
+	fmt.Println(filteredEntries)
+	report.entries = filteredEntries
 }
 
 // reIndexForRelease based on template names

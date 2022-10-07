@@ -296,6 +296,7 @@ func (d *diffCmd) runHelm3() error {
 	} else {
 		newSpecs = manifest.Parse(string(installManifest), d.namespace, d.normalizeManifests, helm3TestHook, helm2TestSuccessHook)
 	}
+	//fmt.Println(newSpecs)
 	seenAnyChanges := diff.Manifests(currentSpecs, newSpecs, &d.Options, os.Stdout)
 
 	if d.detailedExitCode && seenAnyChanges {
