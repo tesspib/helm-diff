@@ -118,6 +118,11 @@ func newChartCommand() *cobra.Command {
 			"# This is equivalent to specifying the --context flag.",
 			"# Read the flag usage below for more information on --context.",
 			"HELM_DIFF_OUTPUT_CONTEXT=5 helm diff upgrade my-release datadog/datadog",
+			"",
+			"# Set HELM_DIFF_SHOW_HELM_LABELS=true to show Helm chart and app version label diffs in the output.",
+			"# This is equivalent to specifying the --show-helm-labels flag.",
+			"# Read the flag usage below for more information on --show-helm-labels.",
+			"HELM_DIFF_SHOW_HELM_LABELS=true helm diff upgrade my-release datadog/datadog",
 		}, "\n"),
 		Args: func(cmd *cobra.Command, args []string) error {
 			return checkArgsLength(len(args), "release name", "chart path")
@@ -158,6 +163,11 @@ func newChartCommand() *cobra.Command {
 						diff.OutputContext = context
 					}
 				}
+			}
+
+			if !diff.ShowHelmLabels && !cmd.Flags().Changed("show-helm-labels") {
+				enabled := os.Getenv("HELM_DIFF_SHOW_HELM_LABELS") == "true"
+				diff.ShowHelmLabels = enabled
 			}
 
 			ProcessDiffOptions(cmd.Flags(), &diff.Options)

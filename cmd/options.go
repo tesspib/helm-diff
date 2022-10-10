@@ -8,7 +8,7 @@ import (
 // AddDiffOptions adds flags for the various consolidated options to the functions in the diff package
 func AddDiffOptions(f *pflag.FlagSet, o *diff.Options) {
 	f.BoolP("suppress-secrets", "q", false, "suppress secrets in the output")
-	f.BoolVar(&o.ShowHelmLabels, "show-helm-labels", false, "do not filter out Helm label changes from the output")
+	f.BoolVar(&o.ShowHelmLabels, "show-helm-labels", false, "show Helm chart or app version label changes in the output, can be enabled via HELM_DIFF_SHOW_HELM_LABELS=true env var")
 	f.BoolVar(&o.ShowSecrets, "show-secrets", false, "do not redact secret values in the output")
 	f.StringArrayVar(&o.SuppressedKinds, "suppress", []string{}, "allows suppression of the values listed in the diff output")
 	f.IntVarP(&o.OutputContext, "context", "C", -1, "output NUM lines of context around changes")

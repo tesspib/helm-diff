@@ -108,6 +108,7 @@ Flags:
       --set stringArray              set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)
       --set-file stringArray         set values from respective files specified via the command line (can specify multiple or separate values with commas: key1=path1,key2=path2)
       --set-string stringArray       set STRING values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)
+      --show-helm-labels             show Helm chart or app version label changes in the output, can be enabled via HELM_DIFF_SHOW_HELM_LABELS=true env var
       --show-secrets                 do not redact secret values in the output
       --strip-trailing-cr            strip trailing carriage return on input
       --suppress stringArray         allows suppression of the values listed in the diff output
@@ -167,6 +168,11 @@ Examples:
   # This is equivalent to specifying the --context flag.
   # Read the flag usage below for more information on --context.
   HELM_DIFF_OUTPUT_CONTEXT=5 helm diff upgrade my-release datadog/datadog
+
+  # Set HELM_DIFF_SHOW_HELM_LABELS=true to show Helm chart and app version label diffs in the output.
+  # This is equivalent to specifying the --show-helm-labels flag.
+  # Read the flag usage below for more information on --show-helm-labels.
+  HELM_DIFF_SHOW_HELM_LABELS=true helm diff upgrade my-release datadog/datadog
 
 Flags:
       --allow-unreleased             enables diffing of releases that are not yet deployed via Helm
