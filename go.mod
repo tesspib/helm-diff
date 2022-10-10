@@ -1,4 +1,4 @@
-module github.com/databus23/helm-diff/v3
+module github.com/tesspib/helm-diff/v3
 
 go 1.17
 

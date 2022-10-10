@@ -1,7 +1,7 @@
 # Helm Diff Plugin
-[![Go Report Card](https://goreportcard.com/badge/github.com/databus23/helm-diff)](https://goreportcard.com/report/github.com/databus23/helm-diff)
-[![GoDoc](https://godoc.org/github.com/databus23/helm-diff?status.svg)](https://godoc.org/github.com/databus23/helm-diff)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/databus23/helm-diff/blob/master/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tesspib/helm-diff)](https://goreportcard.com/report/github.com/tesspib/helm-diff)
+[![GoDoc](https://godoc.org/github.com/tesspib/helm-diff?status.svg)](https://godoc.org/github.com/tesspib/helm-diff)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/tesspib/helm-diff/blob/master/LICENSE)
 
 This is a Helm plugin giving you a preview of what a `helm upgrade` would change.
 It basically generates a diff between the latest deployed version of a release
@@ -15,11 +15,11 @@ revisions/versions of your helm release.
 ### Using Helm plugin manager (> 2.3.x)
 
 ```shell
-helm plugin install https://github.com/databus23/helm-diff
+helm plugin install https://github.com/tesspib/helm-diff
 ```
 
 ### Pre Helm 2.3.0 Installation
-Pick a release tarball from the [releases](https://github.com/databus23/helm-diff/releases) page.
+Pick a release tarball from the [releases](https://github.com/tesspib/helm-diff/releases) page.
 
 Unpack the tarball in your helm plugins directory (`$(helm home)/plugins`).
 
@@ -143,12 +143,12 @@ Examples:
 
   # Set HELM_DIFF_IGNORE_UNKNOWN_FLAGS=true to ignore unknown flags
   # It's useful when you're using `helm-diff` in a `helm upgrade` wrapper.
-  # See https://github.com/databus23/helm-diff/issues/278 for more information.
+  # See https://github.com/tesspib/helm-diff/issues/278 for more information.
   HELM_DIFF_IGNORE_UNKNOWN_FLAGS=true helm diff upgrade my-release stable/postgres --wait
 
   # Set HELM_DIFF_USE_UPGRADE_DRY_RUN=true to
   # use `helm upgrade --dry-run` instead of `helm template` to render manifests from the chart.
-  # See https://github.com/databus23/helm-diff/issues/253 for more information.
+  # See https://github.com/tesspib/helm-diff/issues/253 for more information.
   HELM_DIFF_USE_UPGRADE_DRY_RUN=true helm diff upgrade my-release datadog/datadog
 
   # Set HELM_DIFF_THREE_WAY_MERGE=true to
@@ -303,9 +303,9 @@ Global Flags:
 Clone the repository into your `$GOPATH` and then build it.
 
 ```
-$ mkdir -p $GOPATH/src/github.com/databus23/
-$ cd $GOPATH/src/github.com/databus23/
-$ git clone https://github.com/databus23/helm-diff.git
+$ mkdir -p $GOPATH/src/github.com/tesspib/
+$ cd $GOPATH/src/github.com/tesspib/
+$ git clone https://github.com/tesspib/helm-diff.git
 $ cd helm-diff
 $ make install
 ```
