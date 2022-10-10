@@ -65,14 +65,10 @@ func Manifests(oldIndex, newIndex map[string]*manifest.MappingResult, options *O
 		doDiff(&report, key, nil, newContent, options)
 	}
 
-	//for _, entry := range report.entries {
-	//	for _, diff := range entry.diffs {
-	//		fmt.Println(diff)
-	//	}
-	//}
 	if !options.ShowHelmLabels {
-		filterOutHelmLabelDiffs(&report)
+		fmt.Fprintln(to, "NOTE: changes to Helm chart and app version labels are not shown. Use --show-helm-labels to display them.")
 	}
+
 	seenAnyChanges := len(report.entries) > 0
 	report.print(to)
 	report.clean()
@@ -154,6 +150,9 @@ func doDiff(report *Report, key string, oldContent *manifest.MappingResult, newC
 		report.addEntry(key, options.SuppressedKinds, oldContent.Kind, options.OutputContext, diffs, "REMOVE")
 	} else {
 		diffs := diffMappingResults(oldContent, newContent, options.StripTrailingCR)
+		if !options.ShowHelmLabels {
+			filterOutHelmLabels(diffs)
+		}
 		if actualChanges(diffs) > 0 {
 			report.addEntry(key, options.SuppressedKinds, oldContent.Kind, options.OutputContext, diffs, "MODIFY")
 		}
@@ -357,33 +356,30 @@ func calculateDistances(diffs []difflib.DiffRecord) map[int]int {
 	return distances
 }
 
-// Filter out diff records that contain Helm label changes only
-func filterOutHelmLabelDiffs(report *Report) {
-	// TODO: filter out diffs containing Helm label changes only
-	var filteredEntries []ReportEntry
-	for _, entry := range report.entries {
-		var changes []difflib.DiffRecord
-		for _, diff := range entry.diffs {
-			if diff.Delta == difflib.Common {
-				continue
-			}
+// filterOutHelmLabels filters out Helm chart version label diffs from the records slice
+func filterOutHelmLabels(diffs []difflib.DiffRecord) {
+	helmLabels := []string{
+		// Standard Helm labels
+		"helm.sh/chart",
+		"app.kubernetes.io/version",
 
-			trimmedPayload := strings.TrimSpace(diff.Payload)
-			if strings.HasPrefix(trimmedPayload, "helm.sh/chart:") {
-				continue
-			}
-
-			changes = append(changes, diff)
-		}
-
-		if len(changes) > 0 {
-			entry.diffs = changes
-			filteredEntries = append(filteredEntries, entry)
-		}
+		// Legacy, non-standard labels
+		"chart",
 	}
 
-	fmt.Println(filteredEntries)
-	report.entries = filteredEntries
+	for i := range diffs {
+		diff := &diffs[i]
+		if diff.Delta == difflib.Common {
+			continue
+		}
+
+		trimmedPayload := strings.TrimSpace(diff.Payload)
+		for _, label := range helmLabels {
+			if strings.HasPrefix(trimmedPayload, label) {
+				diff.Delta = difflib.Common
+			}
+		}
+	}
 }
 
 // reIndexForRelease based on template names
