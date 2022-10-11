@@ -374,6 +374,10 @@ func filterOutHelmLabels(diffs []difflib.DiffRecord) {
 		}
 
 		trimmedPayload := strings.TrimSpace(diff.Payload)
+		if trimmedPayload == "" {
+			diff.Delta = difflib.Common
+		}
+
 		for _, label := range helmLabels {
 			if strings.HasPrefix(trimmedPayload, label) {
 				diff.Delta = difflib.Common
