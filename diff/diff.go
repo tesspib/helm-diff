@@ -242,7 +242,6 @@ func getComment(s string) string {
 		return ""
 	}
 	return s[:i+1]
-
 }
 
 // Releases reindex the content  based on the template names and pass it to Manifests
@@ -275,10 +274,9 @@ func split(value string, stripTrailingCR bool) []string {
 
 func printDiffRecords(suppressedKinds []string, kind string, context int, diffs []difflib.DiffRecord, to io.Writer) {
 	for _, ckind := range suppressedKinds {
-
 		if ckind == kind {
 			str := fmt.Sprintf("+ Changes suppressed on sensitive content of type %s\n", kind)
-			fmt.Fprintf(to, ansi.Color(str, "yellow"))
+			fmt.Fprint(to, ansi.Color(str, "yellow"))
 			return
 		}
 	}
@@ -388,7 +386,6 @@ func filterOutHelmLabels(diffs []difflib.DiffRecord) {
 
 // reIndexForRelease based on template names
 func reIndexForRelease(index map[string]*manifest.MappingResult) map[string]*manifest.MappingResult {
-
 	// sort the index to iterate map in the same order
 	var keys []string
 	for key := range index {
@@ -402,7 +399,6 @@ func reIndexForRelease(index map[string]*manifest.MappingResult) map[string]*man
 	newIndex := make(map[string]*manifest.MappingResult)
 
 	for key := range keys {
-
 		str := strings.Replace(strings.Split(index[keys[key]].Content, "\n")[0], "# Source: ", "", 1)
 
 		if _, ok := newIndex[str]; ok {

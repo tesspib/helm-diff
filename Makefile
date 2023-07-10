@@ -1,14 +1,10 @@
 HELM_HOME ?= $(shell helm home)
 VERSION := $(shell sed -n -e 's/version:[ "]*\([^"]*\).*/\1/p' plugin.yaml)
 
-HELM_3_PLUGINS := $(shell bash -c 'eval $$(helm env); echo $$HELM_PLUGINS')
+HELM_3_PLUGINS := $(shell helm env HELM_PLUGINS)
 
 PKG:= github.com/tesspib/helm-diff/v3
 LDFLAGS := -X $(PKG)/cmd.Version=$(VERSION)
-
-# Clear the "unreleased" string in BuildMetadata
-LDFLAGS += -X k8s.io/helm/pkg/version.BuildMetadata=
-LDFLAGS += -X k8s.io/helm/pkg/version.Version=$(shell ./scripts/dep-helm-version.sh)
 
 GO ?= go
 
@@ -43,7 +39,8 @@ build: lint
 
 .PHONY: test
 test:
-	go test -v ./...
+	go test -v ./... -coverprofile cover.out -race
+	go tool cover -func cover.out
 
 .PHONY: bootstrap
 bootstrap:
@@ -55,7 +52,18 @@ docker-run-release: export pkg=/go/src/github.com/tesspib/helm-diff
 docker-run-release:
 	git checkout master
 	git push
-	docker run -it --rm -e GITHUB_TOKEN -v $(shell pwd):$(pkg) -w $(pkg) golang:1.18.1 make bootstrap release
+	# needed to avoid "failed to initialize build cache at /.cache/go-build: mkdir /.cache: permission denied"
+	mkdir -p docker-run-release-cache
+	# uid needs to be set to avoid "error obtaining VCS status: exit status 128"
+	# Also, there needs to be a valid Linux user with the uid in the container-
+	# otherwise git-push will fail.
+	docker build -t helm-diff-release -f Dockerfile.release \
+	  --build-arg HELM_DIFF_UID=$(shell id -u) --load .
+	docker run -it --rm -e GITHUB_TOKEN \
+	-v ${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock \
+	-v $(shell pwd):$(pkg) \
+	-v $(shell pwd)/docker-run-release-cache:/.cache \
+	-w $(pkg) helm-diff-release make bootstrap release
 
 .PHONY: dist
 dist: export COPYFILE_DISABLE=1 #teach OSX tar to not put ._* files in tar archive

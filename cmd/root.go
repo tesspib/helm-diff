@@ -7,7 +7,7 @@ import (
 
 	"github.com/mgutz/ansi"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 const rootCmdLongUsage = `
@@ -15,24 +15,23 @@ The Helm Diff Plugin
 
 * Shows a diff explaining what a helm upgrade would change:
     This fetches the currently deployed version of a release
-  and compares it to a local chart plus values. This can be 
+  and compares it to a local chart plus values. This can be
   used visualize what changes a helm upgrade will perform.
 
 * Shows a diff explaining what had changed between two revisions:
     This fetches previously deployed versions of a release
-  and compares them. This can be used visualize what changes 
+  and compares them. This can be used visualize what changes
   were made during revision change.
 
 * Shows a diff explaining what a helm rollback would change:
     This fetches the currently deployed version of a release
-  and compares it to the previously deployed version of the release, that you 
-  want to rollback. This can be used visualize what changes a 
+  and compares it to the previously deployed version of the release, that you
+  want to rollback. This can be used visualize what changes a
   helm rollback will perform.
 `
 
 // New creates a new cobra client
 func New() *cobra.Command {
-
 	chartCommand := newChartCommand()
 
 	cmd := &cobra.Command{
@@ -67,7 +66,7 @@ func New() *cobra.Command {
 			if nc || (fc != nil && !*fc) {
 				ansi.DisableColors(true)
 			} else if !cmd.Flags().Changed("no-color") && fc == nil {
-				term := terminal.IsTerminal(int(os.Stdout.Fd()))
+				term := term.IsTerminal(int(os.Stdout.Fd()))
 				// https://github.com/databus23/helm-diff/issues/281
 				dumb := os.Getenv("TERM") == "dumb"
 				ansi.DisableColors(!term || dumb)
