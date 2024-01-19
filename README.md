@@ -114,7 +114,7 @@ Flags:
       --show-helm-labels                 show Helm chart or app version label changes in the output, can be enabled via HELM_DIFF_SHOW_HELM_LABELS=true env var
       --show-secrets                     do not redact secret values in the output
       --strip-trailing-cr                strip trailing carriage return on input
-      --suppress stringArray             allows suppression of the values listed in the diff output
+      --suppress stringArray             allows suppression of the kinds listed in the diff output (can specify multiple, like '--suppress Deployment --suppress Service')
   -q, --suppress-secrets                 suppress secrets in the output
       --three-way-merge                  use three-way-merge to compute patch and generate diff output
   -f, --values valueFiles                specify values in a YAML file (can specify multiple) (default [])
@@ -147,19 +147,27 @@ Examples:
 
   # Set HELM_DIFF_IGNORE_UNKNOWN_FLAGS=true to ignore unknown flags
   # It's useful when you're using `helm-diff` in a `helm upgrade` wrapper.
-  # See https://github.com/tesspib/helm-diff/issues/278 for more information.
+  # See https://github.com/databus23/helm-diff/issues/278 for more information.
   HELM_DIFF_IGNORE_UNKNOWN_FLAGS=true helm diff upgrade my-release stable/postgres --wait
+
+  # helm-diff disallows the use of the `lookup` function by default.
+  # To enable it, you must set HELM_DIFF_USE_INSECURE_SERVER_SIDE_DRY_RUN=true to
+  # use `helm template --dry-run=server` or
+  # `helm upgrade --dry-run=server` (in case you also set `HELM_DIFF_USE_UPGRADE_DRY_RUN`)
+  # See https://github.com/databus23/helm-diff/pull/458
+  # for more information.
+  HELM_DIFF_USE_INSECURE_SERVER_SIDE_DRY_RUN=true helm diff upgrade my-release datadog/datadog
 
   # Set HELM_DIFF_USE_UPGRADE_DRY_RUN=true to
   # use `helm upgrade --dry-run` instead of `helm template` to render manifests from the chart.
-  # See https://github.com/tesspib/helm-diff/issues/253 for more information.
+  # See https://github.com/databus23/helm-diff/issues/253 for more information.
   HELM_DIFF_USE_UPGRADE_DRY_RUN=true helm diff upgrade my-release datadog/datadog
 
   # Set HELM_DIFF_THREE_WAY_MERGE=true to
   # enable the three-way-merge on diff.
   # This is equivalent to specifying the --three-way-merge flag.
   # Read the flag usage below for more information on --three-way-merge.
-  HELM_DIFF_THREE_WAY_MERGE=true helm diff upgarde my-release datadog/datadog
+  HELM_DIFF_THREE_WAY_MERGE=true helm diff upgrade my-release datadog/datadog
 
   # Set HELM_DIFF_NORMALIZE_MANIFESTS=true to
   # normalize the yaml file content when using helm diff.
