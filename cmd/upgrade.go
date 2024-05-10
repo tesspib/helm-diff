@@ -3,17 +3,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
-	jsonpatch "github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	jsoniterator "github.com/json-iterator/go"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
@@ -29,6 +29,14 @@ import (
 	"github.com/tesspib/helm-diff/v3/manifest"
 )
 
+var (
+	validDryRunValues = []string{"server", "client", "true", "false"}
+)
+
+const (
+	dryRunNoOptDefVal = "client"
+)
+
 type diffCmd struct {
 	release                  string
 	chart                    string
@@ -38,12 +46,12 @@ type diffCmd struct {
 	devel                    bool
 	disableValidation        bool
 	disableOpenAPIValidation bool
-	dryRunMode               string
-	dryRunModeSpecified      bool
+	enableDNS                bool
 	namespace                string // namespace to assume the release to be installed into. Defaults to the current kube config namespace.
 	valueFiles               valueFiles
 	values                   []string
 	stringValues             []string
+	stringLiteralValues      []string
 	jsonValues               []string
 	fileValues               []string
 	reuseValues              bool
@@ -61,6 +69,14 @@ type diffCmd struct {
 	kubeVersion              string
 	useUpgradeDryRun         bool
 	diff.Options
+
+	// dryRunMode can take the following values:
+	// - "none": no dry run is performed
+	// - "client": dry run is performed without remote cluster access
+	// - "server": dry run is performed with remote cluster access
+	// - "true": same as "client"
+	// - "false": same as "none"
+	dryRunMode string
 }
 
 func (d *diffCmd) isAllowUnreleased() bool {
@@ -72,10 +88,9 @@ func (d *diffCmd) isAllowUnreleased() bool {
 
 // clusterAccessAllowed returns true if the diff command is allowed to access the cluster at some degree.
 //
-// helm-diff basically have 3 modes of operation:
-// 1. no cluster access at all when --dry-run, --dry-run=client, or --dry-run=true is specified.
-// 2. basic cluster access when --dry-run is not specified.
-// 3. extra cluster access when --dry-run=server is specified.
+// helm-diff basically have 2 modes of operation:
+// 1. without cluster access at all when --dry-run=true or --dry-run=client is specified.
+// 2. with cluster access when --dry-run is unspecified, false, or server.
 //
 // clusterAccessAllowed returns true when the mode is either 2 or 3.
 //
@@ -88,15 +103,14 @@ func (d *diffCmd) isAllowUnreleased() bool {
 //
 // See also https://github.com/helm/helm/pull/9426#discussion_r1181397259
 func (d *diffCmd) clusterAccessAllowed() bool {
-	clientOnly := (d.dryRunModeSpecified && d.dryRunMode == "") || d.dryRunMode == "true" || d.dryRunMode == "client"
-	return !clientOnly
+	return d.dryRunMode == "none" || d.dryRunMode == "false" || d.dryRunMode == "server"
 }
 
 const globalUsage = `Show a diff explaining what a helm upgrade would change.
 
 This fetches the currently deployed version of a release
 and compares it to a chart plus values.
-This can be used visualize what changes a helm upgrade will
+This can be used to visualize what changes a helm upgrade will
 perform.
 `
 
@@ -107,12 +121,12 @@ func newChartCommand() *cobra.Command {
 	diff := diffCmd{
 		namespace: os.Getenv("HELM_NAMESPACE"),
 	}
+	unknownFlags := os.Getenv("HELM_DIFF_IGNORE_UNKNOWN_FLAGS") == "true"
 
 	cmd := &cobra.Command{
-		Use:                "upgrade [flags] [RELEASE] [CHART]",
-		Short:              "Show a diff explaining what a helm upgrade would change.",
-		Long:               globalUsage,
-		DisableFlagParsing: true,
+		Use:   "upgrade [flags] [RELEASE] [CHART]",
+		Short: "Show a diff explaining what a helm upgrade would change.",
+		Long:  globalUsage,
 		Example: strings.Join([]string{
 			"  helm diff upgrade my-release stable/postgresql --values values.yaml",
 			"",
@@ -156,66 +170,14 @@ func newChartCommand() *cobra.Command {
 			"# Read the flag usage below for more information on --show-helm-labels.",
 			"HELM_DIFF_SHOW_HELM_LABELS=true helm diff upgrade my-release datadog/datadog",
 		}, "\n"),
+		Args: func(cmd *cobra.Command, args []string) error {
+			return checkArgsLength(len(args), "release name", "chart path")
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Note that we can't just move this block to PersistentPreRunE,
-			// because cmd.SetArgs(args) does not persist between PersistentPreRunE and RunE.
-			// The choice is between:
-			// 1. Doing this in RunE
-			// 2. Doing this in PersistentPreRunE, saving args somewhere, and calling cmd.SetArgs(args) again in RunE
-			// 2 is more complicated without much benefit, so we choose 1.
-			{
-				const (
-					dryRunUsage = "--dry-run, --dry-run=client, or --dry-run=true disables cluster access and show diff as if it was install. Implies --install, --reset-values, and --disable-validation." +
-						" --dry-run=server enables the cluster access with helm-get and the lookup template function."
-				)
-
-				legacyDryRunFlagSet := pflag.NewFlagSet("upgrade", pflag.ContinueOnError)
-				legacyDryRun := legacyDryRunFlagSet.Bool("dry-run", false, dryRunUsage)
-				if err := legacyDryRunFlagSet.Parse(args); err == nil && *legacyDryRun {
-					diff.dryRunModeSpecified = true
-					args = legacyDryRunFlagSet.Args()
-				} else {
-					cmd.Flags().StringVar(&diff.dryRunMode, "dry-run", "", dryRunUsage)
-				}
-
-				// Here we parse the flags ourselves so that we can support
-				// both --dry-run and --dry-run=ARG syntaxes.
-				//
-				// If you don't do this, then cobra will treat --dry-run as
-				// a "flag needs an argument: --dry-run" error.
-				//
-				// This works becase we have `DisableFlagParsing: true`` above.
-				// Never turn that off, or you'll get the error again.
-				if err := cmd.Flags().Parse(args); err != nil {
-					return err
-				}
-
-				args = cmd.Flags().Args()
-
-				if !diff.dryRunModeSpecified {
-					dryRunModeSpecified := cmd.Flags().Changed("dry-run")
-					diff.dryRunModeSpecified = dryRunModeSpecified
-
-					if dryRunModeSpecified && !(diff.dryRunMode == "client" || diff.dryRunMode == "server") {
-						return fmt.Errorf("flag %q must take an argument of %q or %q but got %q", "dry-run", "client", "server", diff.dryRunMode)
-					}
-				}
-
-				cmd.SetArgs(args)
-
-				// We have to do this here because we have to sort out the
-				// --dry-run flag ambiguity to determine the args to be checked.
-				//
-				// In other words, we can't just do:
-				//
-				// cmd.Args = func(cmd *cobra.Command, args []string) error {
-				//     return checkArgsLength(len(args), "release name", "chart path")
-				// }
-				//
-				// Because it seems to take precedence over the PersistentPreRunE
-				if err := checkArgsLength(len(args), "release name", "chart path"); err != nil {
-					return err
-				}
+			if diff.dryRunMode == "" {
+				diff.dryRunMode = "none"
+			} else if !slices.Contains(validDryRunValues, diff.dryRunMode) {
+				return fmt.Errorf("flag %q must take a bool value or either %q or %q, but got %q", "dry-run", "client", "server", diff.dryRunMode)
 			}
 
 			// Suppress the command usage on error. See #77 for more info
@@ -264,7 +226,7 @@ func newChartCommand() *cobra.Command {
 			return diff.runHelm3()
 		},
 		FParseErrWhitelist: cobra.FParseErrWhitelist{
-			UnknownFlags: os.Getenv("HELM_DIFF_IGNORE_UNKNOWN_FLAGS") == "true",
+			UnknownFlags: unknownFlags,
 		},
 	}
 
@@ -285,6 +247,7 @@ func newChartCommand() *cobra.Command {
 	f.VarP(&diff.valueFiles, "values", "f", "specify values in a YAML file (can specify multiple)")
 	f.StringArrayVar(&diff.values, "set", []string{}, "set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
 	f.StringArrayVar(&diff.stringValues, "set-string", []string{}, "set STRING values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
+	f.StringArrayVar(&diff.stringLiteralValues, "set-literal", []string{}, "set STRING literal values on the command line")
 	f.StringArrayVar(&diff.jsonValues, "set-json", []string{}, "set JSON values on the command line (can specify multiple or separate values with commas: key1=jsonval1,key2=jsonval2)")
 	f.StringArrayVar(&diff.fileValues, "set-file", []string{}, "set values from respective files specified via the command line (can specify multiple or separate values with commas: key1=path1,key2=path2)")
 	f.BoolVar(&diff.reuseValues, "reuse-values", false, "reuse the last release's values and merge in any new values. If '--reset-values' is specified, this is ignored")
@@ -296,6 +259,10 @@ func newChartCommand() *cobra.Command {
 	f.BoolVar(&diff.devel, "devel", false, "use development versions, too. Equivalent to version '>0.0.0-0'. If --version is set, this is ignored.")
 	f.BoolVar(&diff.disableValidation, "disable-validation", false, "disables rendered templates validation against the Kubernetes cluster you are currently pointing to. This is the same validation performed on an install")
 	f.BoolVar(&diff.disableOpenAPIValidation, "disable-openapi-validation", false, "disables rendered templates validation against the Kubernetes OpenAPI Schema")
+	f.StringVar(&diff.dryRunMode, "dry-run", "", "--dry-run, --dry-run=client, or --dry-run=true disables cluster access and show diff as if it was install. Implies --install, --reset-values, and --disable-validation."+
+		" --dry-run=server enables the cluster access with helm-get and the lookup template function.")
+	f.Lookup("dry-run").NoOptDefVal = dryRunNoOptDefVal
+	f.BoolVar(&diff.enableDNS, "enable-dns", false, "enable DNS lookups when rendering templates")
 	f.StringVar(&diff.postRenderer, "post-renderer", "", "the path to an executable to be used for post rendering. If it exists in $PATH, the binary will be used, otherwise it will try to look for the executable at the given path")
 	f.StringArrayVar(&diff.postRendererArgs, "post-renderer-args", []string{}, "an argument to the post-renderer (can specify multiple)")
 	f.BoolVar(&diff.insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "skip tls certificate checks for the chart download")
@@ -331,12 +298,12 @@ func (d *diffCmd) runHelm3() error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("Failed to get release %s in namespace %s: %s", d.release, d.namespace, err)
+		return fmt.Errorf("Failed to get release %s in namespace %s: %w", d.release, d.namespace, err)
 	}
 
 	installManifest, err := d.template(!newInstall)
 	if err != nil {
-		return fmt.Errorf("Failed to render chart: %s", err)
+		return fmt.Errorf("Failed to render chart: %w", err)
 	}
 
 	if d.threeWayMerge {
@@ -349,15 +316,15 @@ func (d *diffCmd) runHelm3() error {
 		}
 		original, err := actionConfig.KubeClient.Build(bytes.NewBuffer(releaseManifest), false)
 		if err != nil {
-			return errors.Wrap(err, "unable to build kubernetes objects from original release manifest")
+			return fmt.Errorf("unable to build kubernetes objects from original release manifest: %w", err)
 		}
 		target, err := actionConfig.KubeClient.Build(bytes.NewBuffer(installManifest), false)
 		if err != nil {
-			return errors.Wrap(err, "unable to build kubernetes objects from new release manifest")
+			return fmt.Errorf("unable to build kubernetes objects from new release manifest: %w", err)
 		}
 		releaseManifest, installManifest, err = genManifest(original, target)
 		if err != nil {
-			return errors.Wrap(err, "unable to generate manifests")
+			return fmt.Errorf("unable to generate manifests: %w", err)
 		}
 	}
 
@@ -425,7 +392,7 @@ func genManifest(original, target kube.ResourceList) ([]byte, []byte, error) {
 
 	toBeUpdated, err := existingResourceConflict(toBeCreated)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "rendered manifests contain a resource that already exists. Unable to continue with update")
+		return nil, nil, fmt.Errorf("rendered manifests contain a resource that already exists. Unable to continue with update: %w", err)
 	}
 
 	_ = toBeUpdated.Visit(func(r *resource.Info, err error) error {
@@ -447,7 +414,7 @@ func genManifest(original, target kube.ResourceList) ([]byte, []byte, error) {
 		currentObj, err := helper.Get(info.Namespace, info.Name)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				return errors.Wrap(err, "could not get information about the resource")
+				return fmt.Errorf("could not get information about the resource: %w", err)
 			}
 			// to be created
 			out, _ := yaml.Marshal(info.Object)
@@ -459,11 +426,11 @@ func genManifest(original, target kube.ResourceList) ([]byte, []byte, error) {
 		out, _ := jsoniterator.ConfigCompatibleWithStandardLibrary.Marshal(currentObj)
 		pruneObj, err := deleteStatusAndTidyMetadata(out)
 		if err != nil {
-			return errors.Wrapf(err, "prune current obj %q with kind %s", info.Name, kind)
+			return fmt.Errorf("prune current obj %q with kind %s: %w", info.Name, kind, err)
 		}
 		pruneOut, err := yaml.Marshal(pruneObj)
 		if err != nil {
-			return errors.Wrapf(err, "prune current out %q with kind %s", info.Name, kind)
+			return fmt.Errorf("prune current out %q with kind %s: %w", info.Name, kind, err)
 		}
 		releaseManifest = append(releaseManifest, yamlSeperator...)
 		releaseManifest = append(releaseManifest, pruneOut...)
@@ -481,16 +448,16 @@ func genManifest(original, target kube.ResourceList) ([]byte, []byte, error) {
 		helper.ServerDryRun = true
 		targetObj, err := helper.Patch(info.Namespace, info.Name, patchType, patch, nil)
 		if err != nil {
-			return errors.Wrapf(err, "cannot patch %q with kind %s", info.Name, kind)
+			return fmt.Errorf("cannot patch %q with kind %s: %w", info.Name, kind, err)
 		}
 		out, _ = jsoniterator.ConfigCompatibleWithStandardLibrary.Marshal(targetObj)
 		pruneObj, err = deleteStatusAndTidyMetadata(out)
 		if err != nil {
-			return errors.Wrapf(err, "prune current obj %q with kind %s", info.Name, kind)
+			return fmt.Errorf("prune current obj %q with kind %s: %w", info.Name, kind, err)
 		}
 		pruneOut, err = yaml.Marshal(pruneObj)
 		if err != nil {
-			return errors.Wrapf(err, "prune current out %q with kind %s", info.Name, kind)
+			return fmt.Errorf("prune current out %q with kind %s: %w", info.Name, kind, err)
 		}
 		installManifest = append(installManifest, yamlSeperator...)
 		installManifest = append(installManifest, pruneOut...)
@@ -503,17 +470,17 @@ func genManifest(original, target kube.ResourceList) ([]byte, []byte, error) {
 func createPatch(originalObj, currentObj runtime.Object, target *resource.Info) ([]byte, types.PatchType, error) {
 	oldData, err := json.Marshal(originalObj)
 	if err != nil {
-		return nil, types.StrategicMergePatchType, errors.Wrap(err, "serializing current configuration")
+		return nil, types.StrategicMergePatchType, fmt.Errorf("serializing current configuration: %w", err)
 	}
 	newData, err := json.Marshal(target.Object)
 	if err != nil {
-		return nil, types.StrategicMergePatchType, errors.Wrap(err, "serializing target configuration")
+		return nil, types.StrategicMergePatchType, fmt.Errorf("serializing target configuration: %w", err)
 	}
 
 	// Even if currentObj is nil (because it was not found), it will marshal just fine
 	currentData, err := json.Marshal(currentObj)
 	if err != nil {
-		return nil, types.StrategicMergePatchType, errors.Wrap(err, "serializing live configuration")
+		return nil, types.StrategicMergePatchType, fmt.Errorf("serializing live configuration: %w", err)
 	}
 	// kind := target.Mapping.GroupVersionKind.Kind
 	// if kind == "Deployment" {
@@ -541,7 +508,7 @@ func createPatch(originalObj, currentObj runtime.Object, target *resource.Info) 
 
 	patchMeta, err := strategicpatch.NewPatchMetaFromStruct(versionedObject)
 	if err != nil {
-		return nil, types.StrategicMergePatchType, errors.Wrap(err, "unable to create patch metadata from object")
+		return nil, types.StrategicMergePatchType, fmt.Errorf("unable to create patch metadata from object: %w", err)
 	}
 
 	patch, err := strategicpatch.CreateThreeWayMergePatch(oldData, newData, currentData, patchMeta, true)
@@ -567,7 +534,7 @@ func existingResourceConflict(resources kube.ResourceList) (kube.ResourceList, e
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
-			return errors.Wrap(err, "could not get information about the resource")
+			return fmt.Errorf("could not get information about the resource: %w", err)
 		}
 
 		requireUpdate.Append(info)
@@ -581,7 +548,7 @@ func deleteStatusAndTidyMetadata(obj []byte) (map[string]interface{}, error) {
 	var objectMap map[string]interface{}
 	err := jsoniterator.Unmarshal(obj, &objectMap)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not unmarshal byte sequence")
+		return nil, fmt.Errorf("could not unmarshal byte sequence: %w", err)
 	}
 
 	delete(objectMap, "status")

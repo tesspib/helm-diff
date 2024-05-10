@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gonvenience/bunt"
 	"github.com/mgutz/ansi"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -16,17 +17,17 @@ The Helm Diff Plugin
 * Shows a diff explaining what a helm upgrade would change:
     This fetches the currently deployed version of a release
   and compares it to a local chart plus values. This can be
-  used visualize what changes a helm upgrade will perform.
+  used to visualize what changes a helm upgrade will perform.
 
 * Shows a diff explaining what had changed between two revisions:
     This fetches previously deployed versions of a release
-  and compares them. This can be used visualize what changes
+  and compares them. This can be used to visualize what changes
   were made during revision change.
 
 * Shows a diff explaining what a helm rollback would change:
     This fetches the currently deployed version of a release
   and compares it to the previously deployed version of the release, that you
-  want to rollback. This can be used visualize what changes a
+  want to rollback. This can be used to visualize what changes a
   helm rollback will perform.
 `
 
@@ -61,15 +62,19 @@ func New() *cobra.Command {
 				}
 			}
 
+			// Dyff relies on bunt, default to color=on
+			bunt.SetColorSettings(bunt.ON, bunt.ON)
 			nc, _ := cmd.Flags().GetBool("no-color")
 
 			if nc || (fc != nil && !*fc) {
 				ansi.DisableColors(true)
+				bunt.SetColorSettings(bunt.OFF, bunt.OFF)
 			} else if !cmd.Flags().Changed("no-color") && fc == nil {
 				term := term.IsTerminal(int(os.Stdout.Fd()))
 				// https://github.com/databus23/helm-diff/issues/281
 				dumb := os.Getenv("TERM") == "dumb"
 				ansi.DisableColors(!term || dumb)
+				bunt.SetColorSettings(bunt.OFF, bunt.OFF)
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

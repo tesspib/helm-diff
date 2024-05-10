@@ -113,7 +113,7 @@ func parseContent(content string, defaultNamespace string, normalizeManifests bo
 		return nil, nil
 	}
 
-	if parsedMetadata.Kind == "List" {
+	if strings.HasSuffix(parsedMetadata.Kind, "List") {
 		type ListV1 struct {
 			Items []yaml.MapSlice `yaml:"items"`
 		}
@@ -134,7 +134,7 @@ func parseContent(content string, defaultNamespace string, normalizeManifests bo
 
 			subs, err := parseContent(string(subcontent), defaultNamespace, normalizeManifests, excludedHooks...)
 			if err != nil {
-				return nil, fmt.Errorf("Parsing YAML list item: %v", err)
+				return nil, fmt.Errorf("Parsing YAML list item: %w", err)
 			}
 
 			result = append(result, subs...)

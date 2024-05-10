@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Masterminds/semver"
+	"github.com/Masterminds/semver/v3"
 )
 
 var (
@@ -25,7 +25,7 @@ func getHelmVersion() (*semver.Version, error) {
 	debugPrint("Executing %s", strings.Join(cmd.Args, " "))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to run `%s version`: %v", os.Getenv("HELM_BIN"), err)
+		return nil, fmt.Errorf("Failed to run `%s version`: %w", os.Getenv("HELM_BIN"), err)
 	}
 	versionOutput := string(output)
 
@@ -35,7 +35,7 @@ func getHelmVersion() (*semver.Version, error) {
 	}
 	helmVersion, err := semver.NewVersion(matches[1])
 	if err != nil {
-		return nil, fmt.Errorf("Failed to parse version %#v: %v", matches[1], err)
+		return nil, fmt.Errorf("Failed to parse version %#v: %w", matches[1], err)
 	}
 
 	return helmVersion, nil
@@ -131,7 +131,7 @@ func (d *diffCmd) template(isUpgrade bool) ([]byte, error) {
 	// Helm automatically enable --reuse-values when there's no --set, --set-string, --set-json, --set-values, --set-file present.
 	// Let's simulate that in helm-diff.
 	// See https://medium.com/@kcatstack/understand-helm-upgrade-flags-reset-values-reuse-values-6e58ac8f127e
-	shouldDefaultReusingValues := isUpgrade && len(d.values) == 0 && len(d.stringValues) == 0 && len(d.jsonValues) == 0 && len(d.valueFiles) == 0 && len(d.fileValues) == 0
+	shouldDefaultReusingValues := isUpgrade && len(d.values) == 0 && len(d.stringValues) == 0 && len(d.stringLiteralValues) == 0 && len(d.jsonValues) == 0 && len(d.valueFiles) == 0 && len(d.fileValues) == 0
 	if (d.reuseValues || shouldDefaultReusingValues) && !d.resetValues && d.clusterAccessAllowed() {
 		tmpfile, err := os.CreateTemp("", "existing-values")
 		if err != nil {
@@ -150,6 +150,9 @@ func (d *diffCmd) template(isUpgrade bool) ([]byte, error) {
 	}
 	for _, stringValue := range d.stringValues {
 		flags = append(flags, "--set-string", stringValue)
+	}
+	for _, stringLiteralValue := range d.stringLiteralValues {
+		flags = append(flags, "--set-literal", stringLiteralValue)
 	}
 	for _, jsonValue := range d.jsonValues {
 		flags = append(flags, "--set-json", jsonValue)
@@ -191,6 +194,10 @@ func (d *diffCmd) template(isUpgrade bool) ([]byte, error) {
 		flags = append(flags, "--disable-openapi-validation")
 	}
 
+	if d.enableDNS {
+		flags = append(flags, "--enable-dns")
+	}
+
 	var (
 		subcmd string
 		filter func([]byte) []byte
@@ -210,7 +217,7 @@ func (d *diffCmd) template(isUpgrade bool) ([]byte, error) {
 		}
 
 		// If the program reaches here,
-		// we are sure that the user wants to user the `helm upgrade --dry-run` command
+		// we are sure that the user wants to use the `helm upgrade --dry-run` command
 		// for generating the manifests to be diffed.
 		//
 		// So the question is only whether to use `--dry-run=client` or `--dry-run=server`.
